@@ -20,6 +20,19 @@ describe('HighlightRenderer', () => {
       const renderer = new HighlightRenderer('');
       expect(renderer.validate(template)).toBe(true);
     });
+
+    it('should return true for a template using "in sectionMarkerNotes", even with no sectionMarkerNotes configured', () => {
+      // Regression test: nunjucks' `in` operator throws when the right-hand
+      // side is undefined, and validate()'s stub context didn't previously
+      // include sectionMarkerNotes at all - meaning a perfectly valid
+      // template would be flagged as a syntax error in the Template Editor
+      // even though real rendering (which does supply sectionMarkerNotes)
+      // works fine.
+      const renderer = new HighlightRenderer('');
+      expect(renderer.validate('{% if note in sectionMarkerNotes %}{{ text }}{% endif %}')).toBe(
+        true
+      );
+    });
   });
 
   describe('render', () => {
