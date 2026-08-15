@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 
 import kindleIcon from '~/assets/kindleIcon.svg';
 import { ConfirmDeleteModal } from '~/components/confirmDeleteModal';
+import { SingleBookPickerModal } from '~/components/singleBookPickerModal';
 import SyncModal from '~/components/syncModal';
 import { store as syncModalStore } from '~/components/syncModal/store';
 import { ee } from '~/eventEmitter';
@@ -71,6 +72,14 @@ export default class KindlePlugin extends Plugin {
       name: 'Sync highlights',
       callback: () => {
         this.showSyncModal();
+      },
+    });
+
+    this.addCommand({
+      id: 'kindle-sync-single-book',
+      name: 'Sync a single book…',
+      callback: () => {
+        void this.syncSingleBook();
       },
     });
 
@@ -174,6 +183,37 @@ export default class KindlePlugin extends Plugin {
 
   private async startAmazonSync(): Promise<void> {
     await this.syncAmazon.startSync();
+  }
+
+  private async syncSingleBook(): Promise<void> {
+    if (syncCancellation.isActive) {
+      new Notice('Kindle: a sync is already in progress');
+      return;
+    }
+
+    new Notice('Kindle: loading your library…');
+
+    const remoteBooks = await this.syncAmazon.fetchRemoteBooks();
+
+    if (remoteBooks == null) {
+      return; // Login failed or was cancelled
+    }
+
+    if (remoteBooks.length === 0) {
+      new Notice('Kindle: no books found in your library');
+      return;
+    }
+
+    const syncedBookIds = new Set(
+      this.fileManager
+        .getKindleFiles()
+        .map((f) => f.book?.id)
+        .filter((id): id is string => id != null)
+    );
+
+    new SingleBookPickerModal(this.app, remoteBooks, syncedBookIds, (book) => {
+      void this.syncAmazon.syncSingleBook(book);
+    }).open();
   }
 
   private async migrateProperties(): Promise<void> {
