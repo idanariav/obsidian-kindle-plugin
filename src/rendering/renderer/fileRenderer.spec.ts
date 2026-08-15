@@ -178,5 +178,37 @@ describe('FileRenderer', () => {
       const renderer = new FileRenderer(fileTemplate, '- {{text}}');
       expect(renderer.render(bookHighlight)).toBe(renderedContent);
     });
+
+    it('inserts a real blank line before highlights marked as a new section', () => {
+      const bookHighlight: BookHighlight = {
+        book: {
+          id: faker.random.alphaNumeric(4),
+          title: 'My book title',
+          author: faker.name.findName(),
+        },
+        highlights: [
+          { id: 'H1', text: 'Chapter One', note: '.h1' },
+          { id: 'H2', text: 'first highlight' },
+          { id: 'H3', text: 'second highlight' },
+          { id: 'H4', text: 'Chapter Two', note: '.h2' },
+          { id: 'H5', text: 'third highlight' },
+        ],
+      };
+
+      const highlightTemplate = `{% if note == ".h1" or note == ".h2" %}> {{ text }}{% else %}- {{ text }}{% endif %}`;
+
+      const renderer = new FileRenderer('{{highlights}}', highlightTemplate, ['.h1', '.h2']);
+
+      expect(renderer.render(bookHighlight)).toBe(
+        [
+          '> Chapter One ^ref-H1',
+          '- first highlight ^ref-H2',
+          '- second highlight ^ref-H3',
+          '',
+          '> Chapter Two ^ref-H4',
+          '- third highlight ^ref-H5',
+        ].join('\n')
+      );
+    });
   });
 });

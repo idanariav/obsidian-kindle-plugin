@@ -12,14 +12,16 @@ export const DefaultHighlightTemplate = defaultHighlightTemplate;
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const getRenderers = () => {
-  const { fileNameTemplate, fileTemplate, highlightTemplate } = get(settingsStore);
+  const { fileNameTemplate, fileTemplate, highlightTemplate, sectionMarkerNotes } =
+    get(settingsStore);
   const userFileNameTemplate = fileNameTemplate || DefaultFileNameTemplate;
   const userFileTemplate = fileTemplate || DefaultFileTemplate;
   const userHighlighTemplate = highlightTemplate || DefaultHighlightTemplate;
+  const userSectionMarkerNotes = sectionMarkerNotes ?? [];
 
   return {
     fileNameRenderer: new FileNameRenderer(userFileNameTemplate),
-    fileRenderer: new FileRenderer(userFileTemplate, userHighlighTemplate),
-    highlightRenderer: new HighlightRenderer(userHighlighTemplate),
+    fileRenderer: new FileRenderer(userFileTemplate, userHighlighTemplate, userSectionMarkerNotes),
+    highlightRenderer: new HighlightRenderer(userHighlighTemplate, userSectionMarkerNotes),
   };
 };

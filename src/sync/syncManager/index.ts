@@ -10,6 +10,8 @@ import type { DiffResult } from '../diffManager';
 import { DiffManager } from '../diffManager';
 
 import { diffBooks } from './diffBooks';
+import { filterByFrontmatter } from './frontmatterFilter';
+import { filterIgnoredTitles } from './ignoreBooks';
 
 export default class SyncManager {
   constructor(private fileManager: FileManager) {
@@ -17,24 +19,21 @@ export default class SyncManager {
   }
 
   public filterBooksToSync(remoteBooks: Book[]): Book[] {
-    const lastSyncDate = get(settingsStore).lastSyncDate;
-    const ignoredBooks = get(settingsStore).ignoredBooks ?? [];
-    const vaultBooks = this.fileManager.getKindleFiles();
+    const settings = get(settingsStore);
+    const vaultFiles = this.fileManager.getKindleFiles();
 
     const booksToSync = diffBooks(
       remoteBooks,
-      vaultBooks.map((v) => v.book),
-      lastSyncDate
+      vaultFiles.map((v) => v.book),
+      settings.lastSyncDate
     );
 
-    if (ignoredBooks.length === 0) {
-      return booksToSync;
-    }
+    const titleFiltered = filterIgnoredTitles(booksToSync, settings.ignoredBooks ?? []);
 
-    const ignoredLower = ignoredBooks.map((t) => t.toLowerCase().trim()).filter((t) => t !== '');
-    return booksToSync.filter((book) => {
-      const titleLower = book.title.toLowerCase().trim();
-      return !ignoredLower.some((pattern) => titleLower.includes(pattern));
+    return filterByFrontmatter(titleFiltered, vaultFiles, {
+      ignorePropertyName: settings.ignorePropertyName,
+      statusPropertyName: settings.statusPropertyName,
+      statusCompletedValue: settings.statusCompletedValue,
     });
   }
 

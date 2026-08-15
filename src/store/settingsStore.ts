@@ -18,6 +18,23 @@ type Settings = {
   downloadBookMetadata: boolean;
   ignoredBooks: string[];
 
+  // Frontmatter property name on a synced book note that, when truthy,
+  // excludes that book from all future syncs
+  ignorePropertyName?: string;
+
+  // Frontmatter property name on a synced book note that tracks reading
+  // status (e.g. "Status"), paired with the value that means "finished" -
+  // when a book's file has this property set to statusCompletedValue, it is
+  // excluded from resync (no new highlights will be appended)
+  statusPropertyName?: string;
+  statusCompletedValue?: string;
+
+  // Note values (e.g. ".h1", ".h2") that mark a highlight as a new section
+  // (chapter) start. A real blank line is inserted before such highlights
+  // when rendering, and the value is also exposed to templates as
+  // `sectionMarkerNotes` for conditional formatting.
+  sectionMarkerNotes: string[];
+
   // Deprecated - delete eventually
   noteTemplate?: string;
   history?: string;
@@ -32,6 +49,7 @@ const DEFAULT_SETTINGS: Settings = {
   syncOnBoot: false,
   downloadBookMetadata: true,
   ignoredBooks: [],
+  sectionMarkerNotes: [],
 };
 
 const createSettingsStore = () => {
@@ -154,6 +172,34 @@ const createSettingsStore = () => {
     });
   };
 
+  const setIgnorePropertyName = (value: string) => {
+    store.update((state) => {
+      state.ignorePropertyName = value;
+      return state;
+    });
+  };
+
+  const setStatusPropertyName = (value: string) => {
+    store.update((state) => {
+      state.statusPropertyName = value;
+      return state;
+    });
+  };
+
+  const setStatusCompletedValue = (value: string) => {
+    store.update((state) => {
+      state.statusCompletedValue = value;
+      return state;
+    });
+  };
+
+  const setSectionMarkerNotes = (value: string[]) => {
+    store.update((state) => {
+      state.sectionMarkerNotes = value;
+      return state;
+    });
+  };
+
   return {
     store,
     subscribe: store.subscribe,
@@ -169,6 +215,10 @@ const createSettingsStore = () => {
       setDownloadBookMetadata,
       setAmazonRegion,
       setIgnoredBooks,
+      setIgnorePropertyName,
+      setStatusPropertyName,
+      setStatusCompletedValue,
+      setSectionMarkerNotes,
     },
   };
 };

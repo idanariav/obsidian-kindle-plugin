@@ -39,6 +39,9 @@ export class SettingsTab extends PluginSettingTab {
     this.downloadBookMetadata();
     this.syncOnBoot();
     this.ignoredBooks();
+    this.ignorePropertyName();
+    this.statusProperty();
+    this.sectionMarkerNotes();
     this.sponsorMe();
   }
 
@@ -180,6 +183,76 @@ export class SettingsTab extends PluginSettingTab {
             settingsStore.actions.setIgnoredBooks(books);
           });
         textArea.inputEl.rows = 6;
+        textArea.inputEl.cols = 50;
+      });
+  }
+
+  private ignorePropertyName(): void {
+    new Setting(this.containerEl)
+      .setName('Ignore property')
+      .setDesc(
+        'Frontmatter property name that, when set to a truthy value on an already-synced book note, excludes that book from all future syncs (e.g. "kindle-ignore"). Leave blank to disable'
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder('e.g. kindle-ignore')
+          .setValue(get(settingsStore).ignorePropertyName ?? '')
+          .onChange((value) => {
+            settingsStore.actions.setIgnorePropertyName(value.trim());
+          });
+      });
+  }
+
+  private statusProperty(): void {
+    new Setting(this.containerEl)
+      .setName('Reading status property')
+      .setDesc(
+        'Frontmatter property name that tracks reading status on a book note (e.g. "Status"). Paired with the value below, this lets you stop resyncing a book once you\'ve finished highlighting it - even if Amazon still reports it as recently annotated. Leave blank to disable'
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder('e.g. Status')
+          .setValue(get(settingsStore).statusPropertyName ?? '')
+          .onChange((value) => {
+            settingsStore.actions.setStatusPropertyName(value.trim());
+          });
+      });
+
+    new Setting(this.containerEl)
+      .setName('"Finished" status value')
+      .setDesc(
+        'The value of the property above that means a book is finished and should no longer be resynced (e.g. "Finished"). Case-insensitive'
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder('e.g. Finished')
+          .setValue(get(settingsStore).statusCompletedValue ?? '')
+          .onChange((value) => {
+            settingsStore.actions.setStatusCompletedValue(value.trim());
+          });
+      });
+  }
+
+  private sectionMarkerNotes(): void {
+    const currentValue = (get(settingsStore).sectionMarkerNotes ?? []).join('\n');
+
+    new Setting(this.containerEl)
+      .setName('Section marker notes')
+      .setDesc(
+        'Highlight note values that mark a highlight as the start of a new section (e.g. a chapter title), one per line (e.g. ".h1"). A real blank line is inserted before these highlights when rendering, and this list is also available in templates as the `sectionMarkerNotes` variable'
+      )
+      .addTextArea((textArea) => {
+        textArea
+          .setPlaceholder('e.g.\n.h1\n.h2')
+          .setValue(currentValue)
+          .onChange((value) => {
+            const markers = value
+              .split('\n')
+              .map((line) => line.trim())
+              .filter((line) => line !== '');
+            settingsStore.actions.setSectionMarkerNotes(markers);
+          });
+        textArea.inputEl.rows = 4;
         textArea.inputEl.cols = 50;
       });
   }

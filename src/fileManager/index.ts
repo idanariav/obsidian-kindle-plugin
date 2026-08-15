@@ -69,7 +69,7 @@ export default class FileManager {
 
       const book = frontMatterToBook(kindleFrontmatter);
 
-      return { file, frontmatter: kindleFrontmatter, book };
+      return { file, frontmatter: kindleFrontmatter, book, properties: fileCache?.frontmatter };
     } catch (error) {
       // Silently return undefined on error to prevent blocking
       return undefined;

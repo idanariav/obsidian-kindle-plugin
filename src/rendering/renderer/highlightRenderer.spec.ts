@@ -132,5 +132,49 @@ describe('HighlightRenderer', () => {
         new RegExp(/highlighted text \^ref-.*/)
       );
     });
+
+    describe('templates where {{text}} renders on a different line depending on a branch', () => {
+      // Regression test: a static, parse-time line lookup for {{text}} breaks
+      // the moment two branches of a template render a different number of
+      // lines before reaching {{text}} - every highlight would then be
+      // missing its ^ref- block id, and resync would duplicate every
+      // highlight on every sync. The block ref must be found by searching
+      // rendered content instead.
+      const branchingTemplate = `{%- if note in sectionMarkerNotes -%}
+> [!Quote]- {{ text }}
+{%- else -%}
+> - {{ text }}{% if location %} ({{ location }}){% endif %}
+{%- if note %}
+    - Note: {{ note }}
+{%- endif -%}
+{%- endif %}`;
+
+      it('embeds a ^ref- id on the section-header branch', () => {
+        const highlight: Highlight = {
+          id: 'HEADER1',
+          text: 'Chapter One',
+          note: '.h1',
+        };
+
+        const renderer = new HighlightRenderer(branchingTemplate, ['.h1', '.h2']);
+
+        expect(renderer.render(highlight, book)).toBe('> [!Quote]- Chapter One ^ref-HEADER1');
+      });
+
+      it('embeds a ^ref- id on the regular-highlight branch, on the highlight line (not the note line)', () => {
+        const highlight: Highlight = {
+          id: 'REG1',
+          text: 'A highlight.',
+          note: 'my note',
+          location: '99',
+        };
+
+        const renderer = new HighlightRenderer(branchingTemplate, ['.h1', '.h2']);
+
+        expect(renderer.render(highlight, book)).toBe(
+          '> - A highlight. (99) ^ref-REG1\n    - Note: my note'
+        );
+      });
+    });
   });
 });

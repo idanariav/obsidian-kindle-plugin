@@ -49,6 +49,7 @@ type HighlightTemplateVariables = CommonTemplateVariables & {
   color?: 'pink' | 'blue' | 'yellow' | 'orange';
   createdDate?: Date;
   appLink?: string;
+  sectionMarkerNotes: string[];
 };
 
 export const authorsTemplateVariables = (author: string): AuthorsTemplateVariables => {
@@ -94,12 +95,14 @@ export const fileNameTemplateVariables = (
 
 export const highlightTemplateVariables = (
   highlight: Highlight,
-  book: Book
+  book: Book,
+  sectionMarkerNotes: string[] = []
 ): HighlightTemplateVariables => {
   return {
     ...highlight,
     ...commonTemplateVariables(book),
     appLink: generateAppLink(book.asin, highlight),
+    sectionMarkerNotes,
   };
 };
 

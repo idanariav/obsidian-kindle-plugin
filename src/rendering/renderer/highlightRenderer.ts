@@ -16,7 +16,7 @@ dateFilter.setDefaultFormat('DD-MM-YYYY');
 export default class HighlightRenderer {
   private nunjucks: Environment;
 
-  constructor(private template: string) {
+  constructor(private template: string, private sectionMarkerNotes: string[] = []) {
     this.nunjucks = new Environment(null, { autoescape: false });
     this.nunjucks.addExtension('BlockRef', new BlockReferenceExtension());
     this.nunjucks.addFilter('date', dateFilter);
@@ -32,7 +32,7 @@ export default class HighlightRenderer {
   }
 
   public render(highlight: Highlight, book: Book): string {
-    const templateVariables = highlightTemplateVariables(highlight, book);
+    const templateVariables = highlightTemplateVariables(highlight, book, this.sectionMarkerNotes);
 
     const highlightTemplate = highlightTemplateWrapper.replace('{{ content }}', this.template);
 

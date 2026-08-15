@@ -69,4 +69,7 @@ export type KindleFile = {
   file: TFile;
   frontmatter: KindleFrontmatter;
   book?: Book;
+  // Full raw frontmatter of the note (not just the plugin's own kindle-*
+  // properties), used to check user-defined ignore/status properties
+  properties?: Record<string, unknown>;
 };

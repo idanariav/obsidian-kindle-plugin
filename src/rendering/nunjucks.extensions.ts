@@ -5,8 +5,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import nunjucks from 'nunjucks';
 
-import { sb } from '~/utils';
-
 import { HighlightIdBlockRefPrefix } from './renderer';
 
 type SubClass = {
@@ -57,24 +55,19 @@ function TrimAllEmptyLinesExtension(): void {
 }
 
 /**
- * Recursively iterates through AST of a user template and find the value
- * of every node. This is made complex by the fact that some AST nodes
- * do not have values (e.g. if statement, nested blocks)
- * @param subclass
- * @returns
- */
-const getRecursiveValue = (subclass: SubClass): string => {
-  const firstChild = subclass.children?.[0];
-
-  if (firstChild == null) {
-    return null;
-  }
-
-  return firstChild.args == null ? firstChild.value : getRecursiveValue(firstChild.args);
-};
-
-/**
- * // TODO: description goes here...
+ * Appends a hidden Obsidian block-reference (`^ref-<id>`) to a highlight's
+ * rendered output, so incremental resync can recognize which highlights are
+ * already present in a file.
+ *
+ * The ref is attached to whichever rendered line actually contains the
+ * "needle" variable's value (e.g. the highlight's `text`), found by content
+ * search at render time rather than by the needle's line position in the
+ * raw template source. This makes it robust to templates where the needle
+ * is rendered conditionally (e.g. inside `{% if %}` branches that produce a
+ * different number of lines depending on the highlight) - a static,
+ * parse-time line lookup breaks the moment two branches don't render the
+ * same number of lines before the needle.
+ *
  * {% blockref "text", "id" %}
  *   ...
  * {% endblockref %}
@@ -86,20 +79,12 @@ function BlockReferenceExtension(): void {
     const tok = parser.nextToken(); // Get the tag token
 
     // Parse the args and move after the block end.
-    const args: SubClass = parser.parseSignature(null, true);
+    const args: ParsedSignature = parser.parseSignature(null, true);
     parser.advanceAfterBlockEnd(tok.value);
 
     // Parse the body
     const body: ParsedSignature = parser.parseUntilBlocks('blockref', 'endblockref');
     parser.advanceAfterBlockEnd();
-
-    // Parse the name of the "needle" or template variable name that we will search for (e.g. "text" in `{% blockref "text", "id" %}`)
-    const needle = args.children[0].value;
-
-    // Find line number of where our needle is located in template
-    const needleSubclass = body.children.find((c) => getRecursiveValue(c) === needle);
-
-    this.lineNumber = needleSubclass?.lineno;
 
     // Actually do work on block body and arguments
     return new nodes.CallExtension(this, 'run', args, [body]);
@@ -107,24 +92,30 @@ function BlockReferenceExtension(): void {
 
   this.run = function (
     context: Context,
-    _needle: keyof Context['ctx'],
-    highlightId: keyof Context['ctx'],
+    needleKey: keyof Context['ctx'],
+    highlightIdKey: keyof Context['ctx'],
     bodyCallback: () => string
   ) {
     const renderedTemplate: string = bodyCallback();
 
-    // `lineNumber` can be undefined if highlight text ({{text}}) is not used in template
-    if (this.lineNumber == null) {
+    // Needle value can be missing if the corresponding template variable
+    // (e.g. {{text}}) is not used, or renders empty, for this highlight
+    const needleValue = context.ctx[needleKey];
+    if (needleValue == null || String(needleValue) === '') {
       return renderedTemplate;
     }
 
-    const buffer = sb(renderedTemplate);
+    const lines = renderedTemplate.split('\n');
+    const targetIndex = lines.findIndex((line) => line.includes(String(needleValue)));
 
-    const blockRef = `${HighlightIdBlockRefPrefix}${context.ctx[highlightId]}`;
-    const blockRefSuffixLine = `${buffer.getLine(this.lineNumber + 1)} ${blockRef}`;
+    if (targetIndex === -1) {
+      return renderedTemplate;
+    }
 
-    buffer.replace({ line: this.lineNumber, content: blockRefSuffixLine });
-    return new nunjucks.runtime.SafeString(buffer.toString());
+    const blockRef = `${HighlightIdBlockRefPrefix}${context.ctx[highlightIdKey]}`;
+    lines[targetIndex] = `${lines[targetIndex]} ${blockRef}`;
+
+    return new nunjucks.runtime.SafeString(lines.join('\n'));
   };
 }
 
