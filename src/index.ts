@@ -1,4 +1,5 @@
-import { addIcon, Notice, Plugin } from 'obsidian';
+import { addIcon, FileSystemAdapter, Notice, Plugin } from 'obsidian';
+import path from 'path';
 import { get } from 'svelte/store';
 
 import kindleIcon from '~/assets/kindleIcon.svg';
@@ -38,7 +39,7 @@ export default class KindlePlugin extends Plugin {
 
     await initializeStores(this, this.fileManager);
 
-    this.syncAmazon = new SyncAmazon(syncManager);
+    this.syncAmazon = new SyncAmazon(syncManager, this.browserProfileDir());
     this.syncClippings = new SyncClippings(syncManager);
 
     this.ribbonIconEl = this.addRibbonIcon('kindle', 'Sync your Kindle highlights', () => {
@@ -91,7 +92,7 @@ export default class KindlePlugin extends Plugin {
       },
     });
 
-    this.addSettingTab(new SettingsTab(this.app, this, this.fileManager));
+    this.addSettingTab(new SettingsTab(this.app, this, this.fileManager, this.syncAmazon));
 
     registerNotifications();
     this.registerEvents();
@@ -183,6 +184,22 @@ export default class KindlePlugin extends Plugin {
 
   private async startAmazonSync(): Promise<void> {
     await this.syncAmazon.startSync();
+  }
+
+  /**
+   * A persistent, plugin-owned directory for the real browser process
+   * used to sign in to Amazon (see ~/components/amazonLoginModal) - its
+   * `--user-data-dir`. Kept outside the vault's own file tree (inside
+   * the plugin's own folder in .obsidian/plugins/), matching where the
+   * old `persist:kindle-highlights` Electron session partition's data
+   * already lived conceptually. Persisting it means a signed-in browser
+   * session can often be reused across separate "Connect to Amazon"
+   * clicks without re-entering credentials each time.
+   */
+  private browserProfileDir(): string {
+    const adapter = this.app.vault.adapter;
+    const basePath = adapter instanceof FileSystemAdapter ? adapter.getBasePath() : '';
+    return path.join(basePath, this.manifest.dir ?? '', 'amazon-browser-profile');
   }
 
   private async syncSingleBook(): Promise<void> {

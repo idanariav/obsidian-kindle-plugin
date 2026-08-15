@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import { get } from 'svelte/store';
 
 import type KindlePlugin from '~/.';
@@ -9,6 +9,7 @@ import type FileManager from '~/fileManager';
 import type { AmazonAccountRegion } from '~/models';
 import { clearSessionData } from '~/scraper';
 import { settingsStore } from '~/store';
+import type SyncAmazon from '~/sync/syncAmazon';
 
 import TemplateEditorModal from './templateEditorModal';
 
@@ -19,7 +20,12 @@ type AdapterFile = {
 };
 
 export class SettingsTab extends PluginSettingTab {
-  constructor(app: App, plugin: KindlePlugin, private fileManager: FileManager) {
+  constructor(
+    app: App,
+    plugin: KindlePlugin,
+    private fileManager: FileManager,
+    private syncAmazon: SyncAmazon
+  ) {
     super(app, plugin);
     this.app = app;
   }
@@ -31,6 +37,8 @@ export class SettingsTab extends PluginSettingTab {
 
     if (get(settingsStore).isLoggedIn) {
       this.logout();
+    } else {
+      this.amazonConnection();
     }
 
     this.templatesEditor();
@@ -43,6 +51,28 @@ export class SettingsTab extends PluginSettingTab {
     this.statusProperty();
     this.sectionMarkerNotes();
     this.sponsorMe();
+  }
+
+  private amazonConnection(): void {
+    new Setting(this.containerEl)
+      .setName('Amazon account')
+      .setDesc('Not connected — connect your Amazon account to sync Kindle highlights')
+      .addButton((button) => {
+        button
+          .setButtonText('Connect to Amazon')
+          .setCta()
+          .onClick(async () => {
+            button.setButtonText('Connecting…').setDisabled(true);
+
+            const success = await this.syncAmazon.connect();
+
+            if (success) {
+              new Notice('Kindle: connected to Amazon');
+            }
+
+            this.display(); // rerender either way, to reset button/state
+          });
+      });
   }
 
   private templatesEditor(): void {

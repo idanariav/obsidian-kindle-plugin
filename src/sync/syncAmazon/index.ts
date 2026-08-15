@@ -1,12 +1,29 @@
+import { Notice } from 'obsidian';
+import { get } from 'svelte/store';
+
 import AmazonLoginModal from '~/components/amazonLoginModal';
 import { ee } from '~/eventEmitter';
 import type { Book, KindleFile } from '~/models';
 import { scrapeBooks, scrapeHighlightsForBook } from '~/scraper';
+import { settingsStore } from '~/store';
 import type { SyncManager } from '~/sync';
 import { syncCancellation } from '~/sync/syncCancellation';
 
 export default class SyncAmazon {
-  constructor(private syncManager: SyncManager) {}
+  constructor(private syncManager: SyncManager, private browserProfileDir: string) {}
+
+  /**
+   * Opens a real, separate browser for the user to sign in to Amazon in
+   * (see ~/components/amazonLoginModal). Meant to be triggered explicitly
+   * (e.g. a "Connect to Amazon" button in Settings), not as a side effect
+   * of starting a sync - so the user has a dedicated place to (re)connect
+   * and a clear connected/disconnected state to look at, rather than a
+   * login prompt popping up mid-sync.
+   */
+  public async connect(): Promise<boolean> {
+    const modal = new AmazonLoginModal(this.browserProfileDir);
+    return modal.doLogin();
+  }
 
   public async startSync(): Promise<void> {
     if (syncCancellation.isActive) {
@@ -14,20 +31,12 @@ export default class SyncAmazon {
       return;
     }
 
+    if (!this.ensureLoggedIn()) {
+      return;
+    }
+
     syncCancellation.start('amazon');
     ee.emit('syncSessionStart', 'amazon');
-
-    const success = await this.login();
-
-    if (syncCancellation.isCancelled) {
-      syncCancellation.complete();
-      return;
-    }
-
-    if (!success) {
-      syncCancellation.reset();
-      return;
-    }
 
     try {
       ee.emit('fetchingBooks');
@@ -72,9 +81,7 @@ export default class SyncAmazon {
       return undefined;
     }
 
-    const success = await this.login();
-
-    if (!success) {
+    if (!this.ensureLoggedIn()) {
       return undefined;
     }
 
@@ -94,6 +101,10 @@ export default class SyncAmazon {
   public async syncSingleBook(book: Book): Promise<void> {
     if (syncCancellation.isActive) {
       console.warn('Kindle: Sync already in progress, ignoring single-book sync request');
+      return;
+    }
+
+    if (!this.ensureLoggedIn()) {
       return;
     }
 
@@ -120,13 +131,11 @@ export default class SyncAmazon {
       return;
     }
 
-    ee.emit('resyncBook', file);
-
-    const success = await this.login();
-
-    if (!success) {
+    if (!this.ensureLoggedIn()) {
       return;
     }
+
+    ee.emit('resyncBook', file);
 
     try {
       const remoteBooks = await scrapeBooks();
@@ -143,15 +152,14 @@ export default class SyncAmazon {
     }
   }
 
-  private async login(): Promise<boolean> {
-    ee.emit('startLogin');
+  private ensureLoggedIn(): boolean {
+    const isLoggedIn = get(settingsStore).isLoggedIn;
 
-    const modal = new AmazonLoginModal();
-    const success = await modal.doLogin();
+    if (!isLoggedIn) {
+      new Notice('Kindle: please sign in to Amazon from plugin Settings first');
+    }
 
-    ee.emit('loginComplete', success);
-
-    return success;
+    return isLoggedIn;
   }
 
   private async syncBooks(books: Book[]): Promise<void> {
