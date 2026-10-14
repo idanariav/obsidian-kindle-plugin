@@ -13,7 +13,18 @@ type DomResult = {
 type LoadRemoteDomOptions = {
   log?: boolean;
   label?: string;
+  /**
+   * When set, `timeout` becomes the *maximum* wait: the page is read as soon
+   * as this selector exists in the DOM, instead of always sleeping the full
+   * `timeout`.
+   */
+  waitForSelector?: string;
 };
+
+const POLL_INTERVAL_MS = 250;
+const LOAD_TIMEOUT_MS = 60000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const loadRemoteDom = async (
   targetUrl: string,
@@ -22,6 +33,12 @@ export const loadRemoteDom = async (
 ): Promise<DomResult> => {
   const shouldLog = options.log !== false;
   const labelPrefix = options.label ? `${options.label}: ` : '';
+  const log = (message: string) => {
+    console.log(`Kindle: ${labelPrefix}${message}`);
+    if (shouldLog) {
+      ee.emit('syncLog', `${labelPrefix}${message}`);
+    }
+  };
 
   const window: BrowserWindow = new RemoteBrowserWindow({
     width: 1000,
@@ -34,66 +51,73 @@ export const loadRemoteDom = async (
     show: false,
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  window.loadURL(targetUrl);
+  const destroy = () => {
+    if (!window.isDestroyed()) {
+      window.destroy();
+    }
+  };
 
-  return new Promise<DomResult>((resolveWrapper) => {
-    let didNavigateUrl: string = null;
+  let didNavigateUrl: string = null;
 
-    window.webContents.on('did-navigate', (_event, url) => {
-      didNavigateUrl = url;
+  window.webContents.on('did-navigate', (_event, url) => {
+    didNavigateUrl = url;
 
-      if (url !== targetUrl) {
-        if (shouldLog) {
-          ee.emit('syncLog', `${labelPrefix}Navigated to ${url}`);
-        }
-      }
-    });
-
-    window.webContents.on('did-finish-load', () => {
-      if (shouldLog) {
-        ee.emit('syncLog', `${labelPrefix}Page loaded`);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      Promise.resolve()
-        .then(() => {
-          if (timeout > 0) {
-            if (shouldLog) {
-              ee.emit(
-                'syncLog',
-                `${labelPrefix}Waiting ${Math.round(timeout / 1000)}s for content to render…`
-              );
-            }
-            return new Promise((resolve) => {
-              setTimeout(resolve, timeout);
-            });
-          }
-        })
-        .then(() => {
-          if (shouldLog) {
-            ee.emit('syncLog', `${labelPrefix}Extracting page content…`);
-          }
-          return window.webContents.executeJavaScript(
-            `document.querySelector('body').innerHTML`
-          );
-        })
-        .then((html) => {
-          if (shouldLog) {
-            ee.emit('syncLog', `${labelPrefix}Parsing HTML…`);
-          }
-          const $ = cheerio.load(html);
-
-          window.destroy();
-
-          if (shouldLog) {
-            ee.emit('syncLog', `${labelPrefix}Page ready`);
-          }
-
-          resolveWrapper({
-            dom: $,
-            didNavigateUrl: didNavigateUrl,
-          });
-        });
-    });
+    if (url !== targetUrl) {
+      log(`Navigated to ${url}`);
+    }
   });
+
+  const loaded = new Promise<void>((resolve, reject) => {
+    // did-finish-load can fire again after redirects; only the first matters
+    window.webContents.once('did-finish-load', () => resolve());
+    window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      // -3 is ERR_ABORTED, which fires on benign redirects
+      if (isMainFrame && code !== -3) {
+        reject(new Error(`Failed to load ${url}: ${description} (${code})`));
+      }
+    });
+    setTimeout(() => reject(new Error(`Timed out loading ${targetUrl}`)), LOAD_TIMEOUT_MS);
+  });
+
+  try {
+    log('Loading page…');
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    window.loadURL(targetUrl).catch(() => undefined); // failures surface via did-fail-load
+    await loaded;
+    log('Page loaded');
+
+    if (options.waitForSelector) {
+      const selector = JSON.stringify(options.waitForSelector);
+      const deadline = Date.now() + timeout;
+      log(`Waiting up to ${Math.round(timeout / 1000)}s for content to render…`);
+
+      while (Date.now() < deadline) {
+        // Redirected to sign-in: the selector will never appear, don't wait
+        if (didNavigateUrl?.includes('signin')) {
+          break;
+        }
+        const found = await window.webContents.executeJavaScript(
+          `!!document.querySelector(${selector})`
+        );
+        if (found) {
+          break;
+        }
+        await sleep(POLL_INTERVAL_MS);
+      }
+    } else if (timeout > 0) {
+      log(`Waiting ${Math.round(timeout / 1000)}s for content to render…`);
+      await sleep(timeout);
+    }
+
+    log('Extracting page content…');
+    const html = await window.webContents.executeJavaScript(`document.querySelector('body').innerHTML`);
+
+    log('Parsing HTML…');
+    const $ = cheerio.load(html);
+
+    log('Page ready');
+    return { dom: $, didNavigateUrl };
+  } finally {
+    destroy();
+  }
 };

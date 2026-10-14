@@ -65,10 +65,24 @@ export const parseBooks = ($: Root): Book[] => {
   });
 };
 
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('Amazon session expired - please reconnect from plugin Settings');
+  }
+}
+
 const scrapeBooks = async (): Promise<Book[]> => {
   const region = currentAmazonRegion();
   ee.emit('syncLog', `Loading Kindle notebook from ${region.hostname}…`);
-  const { dom } = await loadRemoteDom(region.notebookUrl, 30000);
+  const { dom, didNavigateUrl } = await loadRemoteDom(region.notebookUrl, 30000, {
+    waitForSelector: '.kp-notebook-library-each-book',
+  });
+
+  if (didNavigateUrl?.includes('signin')) {
+    settingsStore.actions.logout();
+    throw new SessionExpiredError();
+  }
+
   const books = parseBooks(dom);
 
   // Amazon's Kindle notebook page typically shows up to 54 books per page

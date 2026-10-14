@@ -4,7 +4,7 @@ import { get } from 'svelte/store';
 import AmazonLoginModal from '~/components/amazonLoginModal';
 import { ee } from '~/eventEmitter';
 import type { Book, KindleFile } from '~/models';
-import { scrapeBooks, scrapeHighlightsForBook } from '~/scraper';
+import { scrapeBooks, scrapeHighlightsForBook, SessionExpiredError } from '~/scraper';
 import { settingsStore } from '~/store';
 import type { SyncManager } from '~/sync';
 import { syncCancellation } from '~/sync/syncCancellation';
@@ -31,7 +31,7 @@ export default class SyncAmazon {
       return;
     }
 
-    if (!this.ensureLoggedIn()) {
+    if (!(await this.ensureLoggedIn())) {
       return;
     }
 
@@ -41,7 +41,7 @@ export default class SyncAmazon {
     try {
       ee.emit('fetchingBooks');
 
-      const remoteBooks = await scrapeBooks();
+      const remoteBooks = await this.scrapeBooksWithReconnect();
 
       if (syncCancellation.isCancelled) {
         syncCancellation.complete();
@@ -81,14 +81,19 @@ export default class SyncAmazon {
       return undefined;
     }
 
-    if (!this.ensureLoggedIn()) {
+    if (!(await this.ensureLoggedIn())) {
       return undefined;
     }
 
     ee.emit('fetchingBooks');
-    const remoteBooks = await scrapeBooks();
 
-    return remoteBooks;
+    try {
+      return await this.scrapeBooksWithReconnect();
+    } catch (error) {
+      console.error('Kindle: failed to fetch library', error);
+      new Notice(`Kindle: could not load your library (${String(error)})`);
+      return undefined;
+    }
   }
 
   /**
@@ -104,7 +109,7 @@ export default class SyncAmazon {
       return;
     }
 
-    if (!this.ensureLoggedIn()) {
+    if (!(await this.ensureLoggedIn())) {
       return;
     }
 
@@ -131,14 +136,14 @@ export default class SyncAmazon {
       return;
     }
 
-    if (!this.ensureLoggedIn()) {
+    if (!(await this.ensureLoggedIn())) {
       return;
     }
 
     ee.emit('resyncBook', file);
 
     try {
-      const remoteBooks = await scrapeBooks();
+      const remoteBooks = await this.scrapeBooksWithReconnect();
       const remoteBook = remoteBooks.find((r) => r.id === file.book.id);
 
       const highlights = await scrapeHighlightsForBook(file.book);
@@ -152,14 +157,21 @@ export default class SyncAmazon {
     }
   }
 
-  private ensureLoggedIn(): boolean {
-    const isLoggedIn = get(settingsStore).isLoggedIn;
+  /** Opens the sign-in window right away if not signed in, instead of sending the user to Settings. */
+  private async ensureLoggedIn(): Promise<boolean> {
+    return get(settingsStore).isLoggedIn || this.connect();
+  }
 
-    if (!isLoggedIn) {
-      new Notice('Kindle: please sign in to Amazon from plugin Settings first');
+  /** Scrapes the library; if the session turns out to be expired, signs in again and retries once. */
+  private async scrapeBooksWithReconnect(): Promise<Book[]> {
+    try {
+      return await scrapeBooks();
+    } catch (error) {
+      if (error instanceof SessionExpiredError && (await this.connect())) {
+        return scrapeBooks();
+      }
+      throw error;
     }
-
-    return isLoggedIn;
   }
 
   private async syncBooks(books: Book[]): Promise<void> {
