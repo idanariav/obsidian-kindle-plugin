@@ -21,7 +21,7 @@ import { join } from 'path';
 export class BrowserNotFoundError extends Error {
   constructor() {
     super(
-      'Could not find an installed Chrome, Edge, Chromium, Brave, or Arc browser. ' +
+      'Could not find an installed Chrome, Edge, Chromium, Brave, Arc, or Dia browser. ' +
         'Signing in to Amazon needs one of these installed.'
     );
     this.name = 'BrowserNotFoundError';
@@ -35,6 +35,9 @@ function macCandidates(): string[] {
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
     '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
     '/Applications/Arc.app/Contents/MacOS/Arc',
+    // Dia (same maker as Arc). macOS only; assumed to share Arc's
+    // single-instance restriction (unverified) - see assertNotAlreadyRunningArc.
+    '/Applications/Dia.app/Contents/MacOS/Dia',
   ];
 }
 
@@ -109,41 +112,44 @@ export function findBrowserExecutable(): string {
  * timeout, if they don't notice it) with no explanation of what to do.
  */
 export class ArcAlreadyRunningError extends Error {
-  constructor() {
+  constructor(browserName = 'Arc') {
     super(
-      'Arc only allows one running instance. Please fully quit Arc, then try connecting again.'
+      `${browserName} only allows one running instance. Please fully quit ${browserName}, then try connecting again.`
     );
     this.name = 'ArcAlreadyRunningError';
   }
 }
 
-function isArcExecutable(executablePath: string): boolean {
-  return /Arc\.app|Arc\.exe/i.test(executablePath);
+function singleInstanceBrowserName(executablePath: string): 'Arc' | 'Dia' | undefined {
+  if (/Arc\.app|Arc\.exe/i.test(executablePath)) return 'Arc';
+  if (/Dia\.app/i.test(executablePath)) return 'Dia';
+  return undefined;
 }
 
-function isArcRunning(): boolean {
+function isBrowserRunning(name: 'Arc' | 'Dia'): boolean {
   try {
     if (process.platform === 'win32') {
-      const output = execFileSync('tasklist', ['/FI', 'IMAGENAME eq Arc.exe'], {
+      const output = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${name}.exe`], {
         encoding: 'utf8',
         timeout: 2000,
       });
-      return /Arc\.exe/i.test(output);
+      return new RegExp(`${name}\\.exe`, 'i').test(output);
     }
     // pgrep exits 0 (and prints matching pids) if found, non-zero if not -
     // execFileSync throws on a non-zero exit, which the catch below
     // treats the same as "not running".
-    execFileSync('pgrep', ['-x', 'Arc'], { timeout: 2000 });
+    execFileSync('pgrep', ['-x', name], { timeout: 2000 });
     return true;
   } catch {
     return false;
   }
 }
 
-/** Throws `ArcAlreadyRunningError` if `executablePath` is Arc and an
- * Arc instance is already running; a no-op for every other browser. */
+/** Throws `ArcAlreadyRunningError` if `executablePath` is Arc or Dia and
+ * an instance is already running; a no-op for every other browser. */
 export function assertNotAlreadyRunningArc(executablePath: string): void {
-  if (isArcExecutable(executablePath) && isArcRunning()) {
-    throw new ArcAlreadyRunningError();
+  const name = singleInstanceBrowserName(executablePath);
+  if (name && isBrowserRunning(name)) {
+    throw new ArcAlreadyRunningError(name);
   }
 }

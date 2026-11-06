@@ -144,7 +144,7 @@ function looksLikeBrowserProcess(command: string): boolean {
   // "arc" is short enough to risk false positives as a bare substring
   // (e.g. a process named "Search" contains "arc") - word-bounded to
   // only match it as a whole word.
-  return /chrome|chromium|msedge|edge|brave|\barc\b/i.test(command);
+  return /chrome|chromium|msedge|edge|brave|\barc\b|\bdia\b/i.test(command);
 }
 
 /**
@@ -213,9 +213,21 @@ export class CdpBrowser {
   }
 
   async newPage(): Promise<CdpPage> {
-    const { targetId } = await this.connection.send<{ targetId: string }>('Target.createTarget', {
-      url: 'about:blank',
-    });
+    // Prefer the tab the browser opened itself (our `about:blank` launch
+    // arg) over creating a new one: some browsers (e.g. Dia) don't show
+    // CDP-created targets in their UI, leaving the user on a blank tab
+    // while navigation happens invisibly.
+    const { targetInfos } = await this.connection.send<{
+      targetInfos: { targetId: string; type: string }[];
+    }>('Target.getTargets');
+    const existing = targetInfos.find((target) => target.type === 'page');
+    const targetId =
+      existing?.targetId ??
+      (
+        await this.connection.send<{ targetId: string }>('Target.createTarget', {
+          url: 'about:blank',
+        })
+      ).targetId;
     const { sessionId } = await this.connection.send<{ sessionId: string }>(
       'Target.attachToTarget',
       { targetId, flatten: true }
@@ -225,6 +237,34 @@ export class CdpBrowser {
     await this.connection.send('Network.enable', {}, sessionId);
 
     const connection = this.connection;
+
+    // The user may finish signing in on a different tab than the one we
+    // navigated (some browsers, e.g. Dia, open it beside their own main
+    // tab). Watch every page target so sign-in is detected wherever it
+    // happens; frame events are already delivered unfiltered by session.
+    connection.on('Target.attachedToTarget', (params) => {
+      const { sessionId: attachedSession, targetInfo } = params as {
+        sessionId: string;
+        targetInfo?: { type?: string };
+      };
+      if (targetInfo?.type === 'page' && attachedSession !== sessionId) {
+        void connection.send('Page.enable', {}, attachedSession).catch(() => undefined);
+      }
+    });
+    await connection.send('Target.setAutoAttach', {
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true,
+    });
+    for (const target of targetInfos) {
+      if (target.type === 'page' && target.targetId !== targetId) {
+        const attached = await connection.send<{ sessionId: string }>('Target.attachToTarget', {
+          targetId: target.targetId,
+          flatten: true,
+        });
+        await connection.send('Page.enable', {}, attached.sessionId).catch(() => undefined);
+      }
+    }
     return {
       navigate: async (url: string) => {
         await connection.send('Page.navigate', { url }, sessionId);
@@ -241,11 +281,8 @@ export class CdpBrowser {
         });
       },
       getCookies: async () => {
-        const result = await connection.send<{ cookies: CdpCookie[] }>(
-          'Network.getAllCookies',
-          {},
-          sessionId
-        );
+        // Browser-wide (Storage domain), not tied to one tab's session.
+        const result = await connection.send<{ cookies: CdpCookie[] }>('Storage.getCookies');
         return result.cookies;
       },
     };

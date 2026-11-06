@@ -11,6 +11,11 @@ describe('candidatesForPlatform', () => {
     expect(candidates.some((c) => c.includes('Arc.app'))).toBe(true);
   });
 
+  it('includes Dia on darwin', () => {
+    const candidates = candidatesForPlatform('darwin');
+    expect(candidates.some((c) => c.includes('Dia.app'))).toBe(true);
+  });
+
   it('returns windows candidates for win32', () => {
     const candidates = candidatesForPlatform('win32');
     expect(candidates.some((c) => c.includes('chrome.exe'))).toBe(true);
